@@ -5,10 +5,6 @@ import (
 	"crypto/des"
 )
 
-type FelicaCardManagement struct {
-	selectedReader string
-}
-
 func BoogeyFunc(entered bool) {}
 
 func SessionKeyGenerationMAC(rc []byte, ck []byte) []byte {
@@ -108,7 +104,14 @@ func MACAReadGeneration(info []byte, rc []byte, sk []byte, blockList []byte) []b
 	return reverseBytes(infoRev)
 }
 
-func MACAWriteGeneration() {
+func MACAWriteGeneration(info []byte, rc []byte, sk []byte, wcntList []byte) []byte {
+
+	//Leaving this separate to add checks if needed
+	if len(info) > 16 {
+
+	}
+
+	return MACAReadGeneration(info, rc, sk, wcntList)
 
 }
 
@@ -127,3 +130,25 @@ func reverseBytes(list []byte) []byte {
 	}
 	return output
 }
+
+//rc := []byte{0x9a, 0x82, 0xef, 0x5a, 0xdd, 0x47, 0xe2, 0x51, 0xc9, 0x48, 0x74, 0x8e, 0x25, 0x29, 0x55, 0x96}
+//information := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+//
+//sessionKey := felica_cards.SessionKeyGenerationMAC(
+//	rc,
+//	[]byte{0x6d, 0x2d, 0xd8, 0x40, 0x9b, 0xbe, 0x2d, 0x5b, 0x4a, 0x91, 0x56, 0xd8, 0x8f, 0x54, 0x12, 0x6f})
+//
+//mac := felica_cards.MACKeyGeneration(
+//	information,
+//	rc,
+//	sessionKey)
+//
+//println(mac)
+//
+//macA := felica_cards.MACAReadGeneration(
+//	information,
+//	rc,
+//	sessionKey,
+//	[]byte{0x05, 0x00, 0x91, 0x00, 0xff, 0xff, 0xff, 0xff},
+//)
+//println(macA)

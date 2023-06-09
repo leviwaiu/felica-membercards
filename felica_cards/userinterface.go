@@ -20,6 +20,7 @@ type DisplayShow struct {
 	application fyne.App
 	window      fyne.Window
 	content     *fyne.Container
+	appTab      *container.AppTabs
 }
 
 type ScreenInfoRawPCSC struct {
@@ -36,12 +37,29 @@ func NewScreenInfoRawPCSC() *ScreenInfoRawPCSC {
 	}
 }
 
-func GetWindow(pcscInfo *ScreenInfoRawPCSC) DisplayShow {
+type ScreenInfoMember struct {
+	CardID   binding.String
+	MemberID binding.String
+	Name     binding.String
+}
+
+func NewScreenInfoMember() *ScreenInfoMember {
+	return &ScreenInfoMember{
+		CardID:   binding.NewString(),
+		MemberID: binding.NewString(),
+		Name:     binding.NewString(),
+	}
+}
+
+func GetWindow(pcscInfo *ScreenInfoRawPCSC, memberInfo *ScreenInfoMember) DisplayShow {
 	a := app.NewWithID("com.leviwaiu.felicaType")
 
 	a.Preferences().SetBool("HasResponse", false)
 	a.Preferences().SetInt("ResponseType", None)
 	a.Preferences().SetString("ResponseText", "")
+	a.Preferences().SetInt("ResponseInt", 0)
+
+	a.Preferences().SetBool("ReaderBackground", false)
 
 	w := a.NewWindow("Felica Card Management")
 
@@ -51,7 +69,7 @@ func GetWindow(pcscInfo *ScreenInfoRawPCSC) DisplayShow {
 		content:     nil,
 	}
 
-	w.SetContent(newDisplayShow.mainBox(pcscInfo))
+	w.SetContent(newDisplayShow.mainBox(pcscInfo, memberInfo))
 
 	return newDisplayShow
 }
@@ -65,21 +83,22 @@ func (dis *DisplayShow) GetEvent() (int, string) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	responseType := dis.application.Preferences().Int("ResponseType")
-	readerString := dis.application.Preferences().String("ResponseText")
+	readString := dis.application.Preferences().String("ResponseText")
 	dis.application.Preferences().SetBool("HasResponse", false)
-	return responseType, readerString
+	return responseType, readString
 }
 
-func (dis *DisplayShow) mainBox(pcscInfo *ScreenInfoRawPCSC) *container.AppTabs {
+func (dis *DisplayShow) mainBox(pcscInfo *ScreenInfoRawPCSC, memberInfo *ScreenInfoMember) *container.AppTabs {
 
 	tabList := container.NewAppTabs(
-		container.NewTabItem("Card Info", dis.standardScreen()),
+		container.NewTabItem("Card Info", dis.standardScreen(memberInfo)),
 		container.NewTabItem("First Issue", dis.firstIssueScreen()),
 		container.NewTabItem("Raw PCSC", dis.rawPCSCScreen(pcscInfo)),
 		container.NewTabItem("Settings", dis.settingsScreen()),
 	)
 
 	tabList.SetTabLocation(container.TabLocationLeading)
+	dis.appTab = tabList
 
 	return tabList
 }
@@ -148,23 +167,25 @@ func (dis *DisplayShow) firstIssueScreen() *fyne.Container {
 		ckInput,
 		ndefEnable,
 		useVerification,
+
 		layout.NewSpacer(),
 		confirmButton,
 	)
 	return content
 }
 
-func (dis *DisplayShow) standardScreen() *fyne.Container {
+func (dis *DisplayShow) standardScreen(memberInfo *ScreenInfoMember) *fyne.Container {
 
-	cardBinding := binding.NewString()
-	cardId := widget.NewEntryWithData(cardBinding)
+	cardId := widget.NewEntryWithData(memberInfo.CardID)
 
-	idBinding := binding.NewString()
-	memberId := widget.NewEntryWithData(idBinding)
+	memberId := widget.NewEntryWithData(memberInfo.MemberID)
 	memberId.Disable()
 
-	nameBinding := binding.NewString()
-	memberName := widget.NewEntryWithData(nameBinding)
+	memberName := widget.NewEntryWithData(memberInfo.Name)
+
+	points := widget.NewEntry()
+
+	changeButton := widget.NewButton("Change Data", func() {})
 
 	content := container.New(layout.NewFormLayout(),
 		widget.NewLabel("Card ID:"),
@@ -173,10 +194,36 @@ func (dis *DisplayShow) standardScreen() *fyne.Container {
 		memberId,
 		widget.NewLabel("Member Name:"),
 		memberName,
+
 		widget.NewLabel("Member Since:"),
+		widget.NewEntry(),
 		widget.NewLabel("Member Expiry:"),
+		widget.NewEntry(),
+
+		widget.NewLabel("Current Points"),
+		points,
+
+		widget.NewLabel("Entered Programs:"),
+		widget.NewTextGrid(),
+		layout.NewSpacer(),
+		changeButton,
 	)
+
 	return content
+}
+
+func (dis *DisplayShow) CheckCardBackground() bool {
+	if dis.appTab.Selected().Text == "Card Info" {
+		return true
+	}
+	return false
+}
+
+func (screenInfo *ScreenInfoMember) UpdateMemberInfo(info MemberInfo) {
+	screenInfo.CardID.Set(info.CardID)
+	screenInfo.MemberID.Set(info.memberId)
+	screenInfo.Name.Set(info.name)
+
 }
 
 func (dis *DisplayShow) settingsScreen() *fyne.Container {
