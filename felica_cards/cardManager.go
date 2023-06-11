@@ -1,30 +1,37 @@
 package felica_cards
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"github.com/ebfe/scard"
 	"os"
+	"strings"
 )
 
 type CardCommand int
 
 const (
+	Idle         = CardCommand(0)
 	ReadMember   = CardCommand(1)
-	RawPCSC      = CardCommand(2)
 	ChangeReader = CardCommand(100)
+	CancelWait   = CardCommand(-1)
 )
+
+type ReadResult int
 
 type CardReaderManager struct {
 	context        *scard.Context
 	readerList     []string
 	selectedReader string
 
-	readerCommand chan CardCommand
+	ReaderCommand chan CardCommand
 	waitContext   context.Context
 	waitCancel    context.CancelFunc
 
 	MemberChannel chan MemberInfo
+	waitCanc      chan bool
 }
 
 type MemberInfo struct {
@@ -57,7 +64,7 @@ func SetupInfo() CardReaderManager {
 		readerList:     readers,
 		selectedReader: selectedReader,
 
-		readerCommand: make(chan CardCommand),
+		ReaderCommand: make(chan CardCommand),
 		waitContext:   waitContext,
 		waitCancel:    waitCancel,
 
@@ -99,12 +106,19 @@ func (cardMan *CardReaderManager) ChangeReader(newReader string) bool {
 			return false
 		}
 		cardMan.waitCancel()
+		cardMan.waitContext, cardMan.waitCancel = context.WithCancel(context.Background())
 		return true
 	}
 	return false
 }
 
+func (cardMan *CardReaderManager) CancelWait() {
+	cardMan.context.Cancel()
+
+}
+
 func (cardMan *CardReaderManager) WaitForCard(cardCommand chan CardCommand) {
+	//I feel like I have made this thing more complicated than it ever has to be
 
 	currentReaderState := []scard.ReaderState{
 		{
@@ -114,63 +128,112 @@ func (cardMan *CardReaderManager) WaitForCard(cardCommand chan CardCommand) {
 	}
 
 	currentStatus := ReadMember
+	running := false
+	runningChan := make(chan bool)
 
 	for {
 		select {
-		case <-cardMan.waitContext.Done():
-			return
-		case x := <-cardCommand:
+		case x := <-cardMan.ReaderCommand:
 			currentStatus = x
+		case newCommand := <-runningChan:
+
+			running = newCommand
 		default:
 			switch currentStatus {
+			case ChangeReader:
+
+			case CancelWait:
+				running = false
+				currentStatus = Idle
 			case ReadMember:
-				err := cardMan.context.GetStatusChange(currentReaderState, 1<<63-1)
-				if err != nil {
-					return
-				}
-				eventState := currentReaderState[0].EventState & 0x00F0
-				if eventState == scard.StatePresent {
-					card, err := cardMan.context.Connect(cardMan.selectedReader, scard.ShareShared, scard.ProtocolAny)
-					if err != nil {
-						//Fill this in if needed
-					}
-					memInfo := MemberInfo{
-						CardID: readCardID(card),
-					}
+				for !running {
+					go func() {
+						select {
+						case <-cardMan.waitContext.Done():
+							running = false
+							return
+						default:
+							err := cardMan.context.GetStatusChange(currentReaderState, 1<<63-1)
+							if err != nil {
+								return
+							}
+							eventState := currentReaderState[0].EventState & 0x00F0
+							if eventState == scard.StatePresent {
+								card, err := cardMan.context.Connect(cardMan.selectedReader, scard.ShareShared, scard.ProtocolAny)
+								if err != nil {
+									//Fill this in if needed
+								}
 
-					cardMan.MemberChannel <- memInfo
+								id, success := readCardID(card)
+								if !success {
 
+								}
+
+								memInfo := MemberInfo{
+									CardID: id,
+								}
+
+								cardMan.MemberChannel <- memInfo
+								card.Disconnect(scard.LeaveCard)
+							}
+							runningChan <- false
+						}
+					}()
+					running = true
 				}
 			}
-
 			currentReaderState[0].CurrentState = currentReaderState[0].EventState & 0x00F0
 		}
 	}
-
-	//for {
-	//
-	//	card, err := context.Connect(selectedReader, scard.ShareShared, scard.ProtocolAny)
-	//	if err != nil {
-	//		//Fill this in if needed
-	//	}
-	//
-	//	if card != nil {
-	//
-	//		newCard <- card
-	//
-	//
-	//	} else {
-	//
-	//	}
-	//}
 }
 
-func readCardID(card *scard.Card) string {
-	cardInfo := card
+func readCardID(card *scard.Card) (string, bool) {
 	getID := []byte{0xff, 0xb0, 0x80, 0x01, 0x02, 0x80, 0x82, 0x80, 0x00, 0x20}
-	output, _ := cardInfo.Transmit(getID)
-	if output != nil {
-		return hex.EncodeToString(output[:len(getID)-2])
+	output, _ := card.Transmit(getID)
+
+	if bytes.Equal(output, []byte{0x69, 0x85}) {
+		return "ERROR: Card Cannot Be Read", false
 	}
-	return ""
+
+	if output != nil {
+		return hex.EncodeToString(output[:len(getID)-2]), true
+	}
+	return "", false
+}
+
+func readCardInfo(card *scard.Card) {
+	getMemberInfo := []byte{0xff, 0xb0, 0x80, 0x03, 0x06, 0x80, 0x00, 0x80, 0x01, 0x80, 0x02, 0x30}
+	output, _ := card.Transmit(getMemberInfo)
+
+	if output != nil {
+
+	}
+
+}
+
+func (cardMan *CardReaderManager) WriteRawPCSC(inputText string) string {
+
+	card, err := cardMan.context.Connect(cardMan.selectedReader, scard.ShareShared, scard.ProtocolAny)
+	if err != nil {
+		return ""
+	}
+
+	newContent := strings.ReplaceAll(inputText, " ", "")
+	bytes, err := hex.DecodeString(newContent)
+	if err != nil {
+		fmt.Errorf("failed to decode hex: %w", err)
+	}
+	rsp, _ := card.Transmit(bytes)
+
+	var outputBuilder strings.Builder
+
+	for i := 0; i < len(rsp); i++ {
+		fmt.Fprintf(&outputBuilder, "%02x ", rsp[i])
+		if (i+1)%16 == 0 {
+			fmt.Fprint(&outputBuilder, "\n")
+		}
+	}
+
+	card.Disconnect(scard.LeaveCard)
+	return outputBuilder.String()
 }

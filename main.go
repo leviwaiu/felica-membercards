@@ -1,10 +1,8 @@
 package main
 
 import (
+	"context"
 	"felica_cards/felica_cards"
-	"fmt"
-	"github.com/ebfe/scard"
-	"golang.org/x/net/context"
 	"time"
 )
 
@@ -30,23 +28,26 @@ func main() {
 	go func() {
 		previousCheck := false
 		for {
-
 			runInBackground := displayShow.CheckCardBackground()
 			if runInBackground != previousCheck {
 				if runInBackground {
+					felicaManagement.ReaderCommand <- felica_cards.ReadMember
+
 					go func() {
 						for {
 							select {
 							case <-memberUIContext.Done():
 								return
-							default:
-								memberInfo := <-felicaManagement.MemberChannel
+							case memberInfo := <-felicaManagement.MemberChannel:
 								memberInfoScreen.UpdateMemberInfo(memberInfo)
 							}
 						}
 					}()
 				} else {
 					memberUICancel()
+					memberUIContext, memberUICancel = context.WithCancel(context.Background())
+					felicaManagement.ReaderCommand <- felica_cards.CancelWait
+					felicaManagement.CancelWait()
 				}
 				previousCheck = runInBackground
 			}
@@ -64,28 +65,9 @@ func main() {
 					go felicaManagement.WaitForCard(cardCommand)
 				}
 			case felica_cards.SubmitPCSCCode:
-				//card := <-newChan
-				//inputText, err := pcscInfoScreen.PcscInput.Get()
-				//newContent := strings.ReplaceAll(inputText, " ", "")
-				//bytes, err := hex.DecodeString(newContent)
-				//if err != nil {
-				//	fmt.Errorf("failed to decode hex: %w", err)
-				//}
-				//rsp, err := card.Transmit(bytes)
-				//handleError(err)
-				//
-				//var outputBuilder strings.Builder
-				//
-				//for i := 0; i < len(rsp); i++ {
-				//	fmt.Fprintf(&outputBuilder, "%02x ", rsp[i])
-				//	if (i+1)%16 == 0 {
-				//		fmt.Fprint(&outputBuilder, "\n")
-				//	}
-				//}
-				//
-				//pcscInfoScreen.UpdateOutput(outputBuilder.String())
-				//
-				//card.Disconnect(scard.LeaveCard)
+				inputText, _ := pcscInfoScreen.PcscInput.Get()
+				result := felicaManagement.WriteRawPCSC(inputText)
+				pcscInfoScreen.UpdateOutput(result)
 			}
 		}
 	}()
@@ -94,23 +76,6 @@ func main() {
 	memberUICancel()
 	felicaManagement.Release()
 
-}
-
-func readCardInfo(card chan *scard.Card) {
-	cardInfo := <-card
-
-	getMemberInfo := []byte{0xff, 0xb0, 0x80, 0x03, 0x06, 0x80, 0x00, 0x80, 0x01, 0x80, 0x02, 0x30}
-	output, _ := cardInfo.Transmit(getMemberInfo)
-	if output != nil {
-
-	}
-
-}
-
-func handleError(e error) {
-	if e != nil {
-		fmt.Println("Error:", e)
-	}
 }
 
 //func main() {

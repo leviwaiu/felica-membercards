@@ -5,6 +5,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
+	"fyne.io/fyne/v2/data/validation"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 	"time"
@@ -38,14 +39,17 @@ func NewScreenInfoRawPCSC() *ScreenInfoRawPCSC {
 }
 
 type ScreenInfoMember struct {
-	CardID   binding.String
-	MemberID binding.String
-	Name     binding.String
+	CardID     binding.String
+	CardWidget *ReadOnlyEntry
+	MemberID   binding.String
+	Name       binding.String
 }
 
 func NewScreenInfoMember() *ScreenInfoMember {
+	cardId := binding.NewString()
+
 	return &ScreenInfoMember{
-		CardID:   binding.NewString(),
+		CardID:   cardId,
 		MemberID: binding.NewString(),
 		Name:     binding.NewString(),
 	}
@@ -60,6 +64,8 @@ func GetWindow(pcscInfo *ScreenInfoRawPCSC, memberInfo *ScreenInfoMember) Displa
 	a.Preferences().SetInt("ResponseInt", 0)
 
 	a.Preferences().SetBool("ReaderBackground", false)
+
+	a.Settings().SetTheme(&generalTheme{})
 
 	w := a.NewWindow("Felica Card Management")
 
@@ -176,10 +182,16 @@ func (dis *DisplayShow) firstIssueScreen() *fyne.Container {
 
 func (dis *DisplayShow) standardScreen(memberInfo *ScreenInfoMember) *fyne.Container {
 
-	cardId := widget.NewEntryWithData(memberInfo.CardID)
+	cardId := NewReadOnlyEntryWithData(memberInfo.CardID)
 
-	memberId := widget.NewEntryWithData(memberInfo.MemberID)
-	memberId.Disable()
+	memberInfo.CardWidget = cardId
+	cardId.ReadOnly()
+
+	cardIdRegex := validation.NewRegexp("\\b[a-f0-9]{16}\\b", "Check for Validity")
+	cardId.Validator = cardIdRegex
+
+	memberId := NewReadOnlyEntryWithData(memberInfo.MemberID)
+	memberId.ReadOnly()
 
 	memberName := widget.NewEntryWithData(memberInfo.Name)
 
@@ -208,7 +220,6 @@ func (dis *DisplayShow) standardScreen(memberInfo *ScreenInfoMember) *fyne.Conta
 		layout.NewSpacer(),
 		changeButton,
 	)
-
 	return content
 }
 
@@ -221,6 +232,7 @@ func (dis *DisplayShow) CheckCardBackground() bool {
 
 func (screenInfo *ScreenInfoMember) UpdateMemberInfo(info MemberInfo) {
 	screenInfo.CardID.Set(info.CardID)
+	screenInfo.CardWidget.Validate()
 	screenInfo.MemberID.Set(info.memberId)
 	screenInfo.Name.Set(info.name)
 
