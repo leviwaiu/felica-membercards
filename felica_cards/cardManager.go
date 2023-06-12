@@ -114,7 +114,6 @@ func (cardMan *CardReaderManager) ChangeReader(newReader string) bool {
 
 func (cardMan *CardReaderManager) CancelWait() {
 	cardMan.context.Cancel()
-
 }
 
 func (cardMan *CardReaderManager) WaitForCard(cardCommand chan CardCommand) {
@@ -201,14 +200,93 @@ func readCardID(card *scard.Card) (string, bool) {
 	return "", false
 }
 
-func readCardInfo(card *scard.Card) {
+func readCardInfo(card *scard.Card) MemberInfo {
 	getMemberInfo := []byte{0xff, 0xb0, 0x80, 0x03, 0x06, 0x80, 0x00, 0x80, 0x01, 0x80, 0x02, 0x30}
 	output, _ := card.Transmit(getMemberInfo)
 
+	firstName := ""
+	lastName := ""
 	if output != nil {
-
+		firstName = parseName(output[16:32])
+		println(firstName)
+		lastName = parseName(output[32:48])
+		println(lastName)
 	}
 
+	return MemberInfo{
+		memberId: hex.EncodeToString(output[:16]),
+		name:     firstName + " " + lastName,
+	}
+
+}
+
+func writeCardInfo(card *scard.Card, memInfo MemberInfo) {
+
+}
+
+// Doing some obtuse and definitely Not recommended stuff to squeeze out some more chara length
+func parseName(byte []byte) string {
+	currentIndex := 0
+	var holdover uint8 = 0x00
+	var outputBuilder strings.Builder
+
+	for _, o := range byte {
+		digitsLeft := 8
+
+		for digitsLeft >= 5 {
+			read := o >> (digitsLeft - 5 + currentIndex) & 0x1f
+			holdover += read
+
+			if holdover == 31 {
+				return outputBuilder.String()
+			}
+
+			outputBuilder.WriteRune(rune('A' + holdover))
+			holdover = 0
+
+			digitsLeft -= 5 - currentIndex
+			currentIndex = 0
+
+		}
+		holdover = o << (5 - digitsLeft) & 0x1f
+		currentIndex = digitsLeft
+	}
+	return outputBuilder.String()
+}
+
+func EncodeName(name string) []byte {
+	var output = make([]byte, 16)
+
+	currentIndex := 0
+	leftoverIndex := 0
+	var leftover = 0x00
+	for _, o := range name {
+		codeNumber := o - 'A'
+		leftover = leftover<<5 + int(codeNumber)
+		leftoverIndex += 5
+
+		if leftoverIndex >= 8 {
+			output[currentIndex] = byte(leftover >> (leftoverIndex - 8))
+			currentIndex++
+			leftoverIndex -= 8
+		}
+	}
+	if len(name) <= 24 {
+		leftover = leftover<<5 + 31
+		leftoverIndex += 5
+
+		if leftoverIndex >= 8 {
+			output[currentIndex] = byte(leftover >> (leftoverIndex - 8))
+			currentIndex++
+			leftoverIndex -= 8
+		}
+	}
+
+	if leftoverIndex > 0 {
+		output[currentIndex] = byte(leftover << (8 - leftoverIndex))
+	}
+
+	return output
 }
 
 func (cardMan *CardReaderManager) WriteRawPCSC(inputText string) string {

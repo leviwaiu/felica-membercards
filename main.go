@@ -68,7 +68,9 @@ func main() {
 				inputText, _ := pcscInfoScreen.PcscInput.Get()
 				result := felicaManagement.WriteRawPCSC(inputText)
 				pcscInfoScreen.UpdateOutput(result)
+			case felica_cards.WriteMember:
 			}
+
 		}
 	}()
 
@@ -77,7 +79,3 @@ func main() {
 	felicaManagement.Release()
 
 }
-
-//func main() {
-//
-//}

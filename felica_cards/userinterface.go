@@ -15,6 +15,7 @@ const (
 	None            = 0
 	NewReaderSelect = 1001
 	SubmitPCSCCode  = 1002
+	WriteMember     = 2001
 )
 
 type DisplayShow struct {
@@ -97,7 +98,8 @@ func (dis *DisplayShow) GetEvent() (int, string) {
 func (dis *DisplayShow) mainBox(pcscInfo *ScreenInfoRawPCSC, memberInfo *ScreenInfoMember) *container.AppTabs {
 
 	tabList := container.NewAppTabs(
-		container.NewTabItem("Card Info", dis.standardScreen(memberInfo)),
+		container.NewTabItem("Card Info", dis.memberReadScreen(memberInfo)),
+		container.NewTabItem("Write Info", dis.memberWriteScreen(memberInfo)),
 		container.NewTabItem("First Issue", dis.firstIssueScreen()),
 		container.NewTabItem("Raw PCSC", dis.rawPCSCScreen(pcscInfo)),
 		container.NewTabItem("Settings", dis.settingsScreen()),
@@ -180,7 +182,7 @@ func (dis *DisplayShow) firstIssueScreen() *fyne.Container {
 	return content
 }
 
-func (dis *DisplayShow) standardScreen(memberInfo *ScreenInfoMember) *fyne.Container {
+func (dis *DisplayShow) memberReadScreen(memberInfo *ScreenInfoMember) *fyne.Container {
 
 	cardId := NewReadOnlyEntryWithData(memberInfo.CardID)
 
@@ -193,11 +195,15 @@ func (dis *DisplayShow) standardScreen(memberInfo *ScreenInfoMember) *fyne.Conta
 	memberId := NewReadOnlyEntryWithData(memberInfo.MemberID)
 	memberId.ReadOnly()
 
-	memberName := widget.NewEntryWithData(memberInfo.Name)
+	memberName := NewReadOnlyEntryWithData(memberInfo.Name)
+	memberName.ReadOnly()
 
 	points := widget.NewEntry()
 
-	changeButton := widget.NewButton("Change Data", func() {})
+	changeButton := widget.NewButton("Change Data", func() {
+		dis.application.Preferences().SetInt("ResponseType", WriteMember)
+		dis.application.Preferences().SetBool("HasResponse", true)
+	})
 
 	content := container.New(layout.NewFormLayout(),
 		widget.NewLabel("Card ID:"),
@@ -221,6 +227,14 @@ func (dis *DisplayShow) standardScreen(memberInfo *ScreenInfoMember) *fyne.Conta
 		changeButton,
 	)
 	return content
+}
+
+func (dis *DisplayShow) memberWriteScreen(memberInfo *ScreenInfoMember) *fyne.Container {
+	return dis.memberReadScreen(memberInfo)
+}
+
+func memberScreenCommon(memberInfo *ScreenInfoMember) {
+
 }
 
 func (dis *DisplayShow) CheckCardBackground() bool {
