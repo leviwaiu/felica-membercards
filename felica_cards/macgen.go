@@ -1,6 +1,7 @@
 package felica_cards
 
 import (
+	"crypto/aes"
 	"crypto/cipher"
 	"crypto/des"
 )
@@ -131,7 +132,21 @@ func reverseBytes(list []byte) []byte {
 	return output
 }
 
+func writeRandomScratch() {
+	//TODO
+}
+
+func generateCardKey(master []byte, cardId []byte) []byte {
+	newBlock, _ := aes.NewCipher(master)
+
+	destination := make([]byte, len(cardId))
+	newBlock.Encrypt(destination, cardId)
+
+	return destination
+}
+
 //rc := []byte{0x9a, 0x82, 0xef, 0x5a, 0xdd, 0x47, 0xe2, 0x51, 0xc9, 0x48, 0x74, 0x8e, 0x25, 0x29, 0x55, 0x96}
+
 //information := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 //
 //sessionKey := felica_cards.SessionKeyGenerationMAC(

@@ -12,10 +12,12 @@ import (
 )
 
 const (
-	None            = 0
-	NewReaderSelect = 1001
-	SubmitPCSCCode  = 1002
-	WriteMember     = 2001
+	None           = 0
+	UISelectReader = 1001
+	UIWritePCSC    = 1002
+	UIReadToggle   = 2001
+	UIReadCard     = 2002
+	UIWriteCard    = 2010
 )
 
 type DisplayShow struct {
@@ -23,6 +25,9 @@ type DisplayShow struct {
 	window      fyne.Window
 	content     *fyne.Container
 	appTab      *container.AppTabs
+
+	pcscScreenInfo   ScreenInfoRawPCSC
+	memberScreenInfo ScreenInfoMember
 }
 
 type ScreenInfoRawPCSC struct {
@@ -40,10 +45,13 @@ func NewScreenInfoRawPCSC() *ScreenInfoRawPCSC {
 }
 
 type ScreenInfoMember struct {
-	CardID     binding.String
-	CardWidget *ReadOnlyEntry
-	MemberID   binding.String
-	Name       binding.String
+	CardID      binding.String
+	CardWidget  *ReadOnlyEntry
+	MemberID    binding.String
+	Name        binding.String
+	Points      binding.Int
+	MemberSince binding.BytesList
+	MemberUntil binding.BytesList
 }
 
 func NewScreenInfoMember() *ScreenInfoMember {
@@ -116,7 +124,7 @@ func (dis *DisplayShow) rawPCSCScreen(pcscInfo *ScreenInfoRawPCSC) *fyne.Contain
 	pcscInfo.ReaderSelect = widget.NewSelect(
 		pcscInfo.ReaderList, func(s string) {
 			dis.application.Preferences().SetString("ResponseText", s)
-			dis.application.Preferences().SetInt("ResponseType", NewReaderSelect)
+			dis.application.Preferences().SetInt("ResponseType", UISelectReader)
 			dis.application.Preferences().SetBool("HasResponse", true)
 		})
 
@@ -128,7 +136,7 @@ func (dis *DisplayShow) rawPCSCScreen(pcscInfo *ScreenInfoRawPCSC) *fyne.Contain
 	pcscInputSpace := widget.NewEntryWithData(pcscInfo.PcscInput)
 
 	executeFunc := func() {
-		dis.application.Preferences().SetInt("ResponseType", SubmitPCSCCode)
+		dis.application.Preferences().SetInt("ResponseType", UIWritePCSC)
 		dis.application.Preferences().SetBool("HasResponse", true)
 	}
 
@@ -160,7 +168,7 @@ func (dis *DisplayShow) firstIssueScreen() *fyne.Container {
 
 	idInput := widget.NewEntry()
 
-	ckInput := widget.NewEntry()
+	ckInput := widget.NewPasswordEntry()
 
 	ndefEnable := widget.NewCheck("Enable Ndef", BoogeyFunc)
 
@@ -184,26 +192,86 @@ func (dis *DisplayShow) firstIssueScreen() *fyne.Container {
 
 func (dis *DisplayShow) memberReadScreen(memberInfo *ScreenInfoMember) *fyne.Container {
 
+	listenButton := widget.NewButton("Start Listening", func() {
+	})
+
+	listenButton.Importance = widget.HighImportance
+	listenFunc := func() {
+		dis.application.Preferences().SetInt("ResponseType", UIReadToggle)
+		dis.application.Preferences().SetBool("HasResponse", true)
+		wasReading := dis.application.Preferences().Bool("ReaderBackground")
+		if wasReading {
+			listenButton.SetText("Start Listening")
+			dis.appTab.EnableIndex(1)
+			dis.appTab.EnableIndex(2)
+			dis.appTab.EnableIndex(3)
+			dis.appTab.EnableIndex(4)
+			listenButton.Importance = widget.HighImportance
+		} else {
+			listenButton.SetText("Stop Listening")
+			dis.appTab.DisableIndex(1)
+			dis.appTab.DisableIndex(2)
+			dis.appTab.DisableIndex(3)
+			dis.appTab.DisableIndex(4)
+			listenButton.Importance = widget.DangerImportance
+		}
+		dis.application.Preferences().SetBool("ReaderBackground", !wasReading)
+	}
+	listenButton.OnTapped = listenFunc
+
+	content := memberScreenCommon(memberInfo, true)
+
+	content.Add(layout.NewSpacer())
+	content.Add(listenButton)
+
+	return content
+}
+
+func (dis *DisplayShow) memberWriteScreen(memberInfo *ScreenInfoMember) *fyne.Container {
+
+	readCardData := widget.NewButton("Read Card", func() {})
+
+	cardData := func() {
+		dis.application.Preferences().SetInt("ResponseType", UIReadCard)
+		dis.application.Preferences().SetBool("HasResponse", true)
+	}
+
+	readCardData.OnTapped = cardData
+
+	changeButton := widget.NewButton("Change Data", func() {
+		dis.application.Preferences().SetInt("ResponseType", UIWriteCard)
+		dis.application.Preferences().SetBool("HasResponse", true)
+	})
+
+	content := memberScreenCommon(memberInfo, false)
+
+	content.Add(layout.NewSpacer())
+	content.Add(readCardData)
+	content.Add(layout.NewSpacer())
+	content.Add(changeButton)
+
+	return content
+}
+
+func memberScreenCommon(memberInfo *ScreenInfoMember, readOnly bool) *fyne.Container {
+
 	cardId := NewReadOnlyEntryWithData(memberInfo.CardID)
 
 	memberInfo.CardWidget = cardId
-	cardId.ReadOnly()
-
 	cardIdRegex := validation.NewRegexp("\\b[a-f0-9]{16}\\b", "Check for Validity")
 	cardId.Validator = cardIdRegex
 
 	memberId := NewReadOnlyEntryWithData(memberInfo.MemberID)
-	memberId.ReadOnly()
 
 	memberName := NewReadOnlyEntryWithData(memberInfo.Name)
-	memberName.ReadOnly()
 
 	points := widget.NewEntry()
 
-	changeButton := widget.NewButton("Change Data", func() {
-		dis.application.Preferences().SetInt("ResponseType", WriteMember)
-		dis.application.Preferences().SetBool("HasResponse", true)
-	})
+	if readOnly {
+		cardId.ReadOnly()
+		memberId.ReadOnly()
+		memberName.ReadOnly()
+	}
 
 	content := container.New(layout.NewFormLayout(),
 		widget.NewLabel("Card ID:"),
@@ -220,21 +288,10 @@ func (dis *DisplayShow) memberReadScreen(memberInfo *ScreenInfoMember) *fyne.Con
 
 		widget.NewLabel("Current Points"),
 		points,
-
 		widget.NewLabel("Entered Programs:"),
 		widget.NewTextGrid(),
-		layout.NewSpacer(),
-		changeButton,
 	)
 	return content
-}
-
-func (dis *DisplayShow) memberWriteScreen(memberInfo *ScreenInfoMember) *fyne.Container {
-	return dis.memberReadScreen(memberInfo)
-}
-
-func memberScreenCommon(memberInfo *ScreenInfoMember) {
-
 }
 
 func (dis *DisplayShow) CheckCardBackground() bool {
@@ -258,9 +315,15 @@ func (dis *DisplayShow) settingsScreen() *fyne.Container {
 
 	})
 
+	MACSelect := widget.NewSelect([]string{"None", "MAC-A (Read/Write)", "MAC (Read)"}, func(x string) {
+
+	})
+
 	content := container.New(layout.NewFormLayout(),
 		widget.NewLabel("Selected Reader:"),
 		pcscSelect,
+		widget.NewLabel("Selected MAC"),
+		MACSelect,
 	)
 	return content
 }

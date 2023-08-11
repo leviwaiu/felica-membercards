@@ -167,10 +167,9 @@ func (cardMan *CardReaderManager) WaitForCard(cardCommand chan CardCommand) {
 								if !success {
 
 								}
+								memInfo := readCardInfo(card)
 
-								memInfo := MemberInfo{
-									CardID: id,
-								}
+								memInfo.CardID = id
 
 								cardMan.MemberChannel <- memInfo
 								card.Disconnect(scard.LeaveCard)
@@ -186,16 +185,40 @@ func (cardMan *CardReaderManager) WaitForCard(cardCommand chan CardCommand) {
 	}
 }
 
+func (cardMan *CardReaderManager) ReadCardInfo() MemberInfo {
+	card, err := cardMan.context.Connect(cardMan.selectedReader, scard.ShareShared, scard.ProtocolAny)
+	if err != nil {
+		return MemberInfo{}
+	}
+
+	id, _ := readCardID(card)
+
+	return MemberInfo{
+		CardID: id,
+	}
+}
+
+func (cardMan *CardReaderManager) WriteCardInfo(memInfo MemberInfo) {
+
+}
+
 func readCardID(card *scard.Card) (string, bool) {
-	getID := []byte{0xff, 0xb0, 0x80, 0x01, 0x02, 0x80, 0x82, 0x80, 0x00, 0x20}
+	getID := []byte{0xff, 0xb0, 0x80, 0x01, 0x02, 0x80, 0x82, 0x00}
 	output, _ := card.Transmit(getID)
 
 	if bytes.Equal(output, []byte{0x69, 0x85}) {
 		return "ERROR: Card Cannot Be Read", false
 	}
 
+	var idString strings.Builder
+
+	idString.WriteString(hex.EncodeToString(output[:len(getID)-2]))
+	for idString.Len() < 32 {
+		idString.WriteRune('0')
+	}
+
 	if output != nil {
-		return hex.EncodeToString(output[:len(getID)-2]), true
+		return idString.String(), true
 	}
 	return "", false
 }
@@ -204,23 +227,19 @@ func readCardInfo(card *scard.Card) MemberInfo {
 	getMemberInfo := []byte{0xff, 0xb0, 0x80, 0x03, 0x06, 0x80, 0x00, 0x80, 0x01, 0x80, 0x02, 0x30}
 	output, _ := card.Transmit(getMemberInfo)
 
-	firstName := ""
-	lastName := ""
-	if output != nil {
-		firstName = parseName(output[16:32])
-		println(firstName)
-		lastName = parseName(output[32:48])
-		println(lastName)
-	}
+	memberName := ""
+	memberId := ""
 
+	if output[1] == 0x80 && output != nil {
+		memberId = hex.EncodeToString(output[8:16])
+		firstName := parseName(output[16:32])
+		lastName := parseName(output[32:48])
+		memberName = firstName + " " + lastName
+	}
 	return MemberInfo{
-		memberId: hex.EncodeToString(output[:16]),
-		name:     firstName + " " + lastName,
+		memberId: memberId,
+		name:     memberName,
 	}
-
-}
-
-func writeCardInfo(card *scard.Card, memInfo MemberInfo) {
 
 }
 
@@ -254,7 +273,7 @@ func parseName(byte []byte) string {
 	return outputBuilder.String()
 }
 
-func EncodeName(name string) []byte {
+func encodeName(name string) []byte {
 	var output = make([]byte, 16)
 
 	currentIndex := 0
@@ -297,21 +316,30 @@ func (cardMan *CardReaderManager) WriteRawPCSC(inputText string) string {
 	}
 
 	newContent := strings.ReplaceAll(inputText, " ", "")
-	bytes, err := hex.DecodeString(newContent)
+	outputBytes, err := hex.DecodeString(newContent)
 	if err != nil {
-		fmt.Errorf("failed to decode hex: %w", err)
+		_ = fmt.Errorf("failed to decode hex: %w", err)
 	}
-	rsp, _ := card.Transmit(bytes)
+	rsp, _ := card.Transmit(outputBytes)
 
 	var outputBuilder strings.Builder
 
 	for i := 0; i < len(rsp); i++ {
-		fmt.Fprintf(&outputBuilder, "%02x ", rsp[i])
+		_, err := fmt.Fprintf(&outputBuilder, "%02x ", rsp[i])
+		if err != nil {
+			return ""
+		}
 		if (i+1)%16 == 0 {
-			fmt.Fprint(&outputBuilder, "\n")
+			_, err2 := fmt.Fprint(&outputBuilder, "\n")
+			if err2 != nil {
+				return ""
+			}
 		}
 	}
 
-	card.Disconnect(scard.LeaveCard)
+	err = card.Disconnect(scard.LeaveCard)
+	if err != nil {
+		return ""
+	}
 	return outputBuilder.String()
 }

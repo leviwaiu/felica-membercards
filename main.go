@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"felica_cards/felica_cards"
-	"time"
 )
 
 func main() {
@@ -25,12 +24,27 @@ func main() {
 	go felicaManagement.WaitForCard(cardCommand)
 
 	memberUIContext, memberUICancel := context.WithCancel(context.Background())
+	readToggle := false
+
 	go func() {
-		previousCheck := false
 		for {
-			runInBackground := displayShow.CheckCardBackground()
-			if runInBackground != previousCheck {
-				if runInBackground {
+			resType, resContent := displayShow.GetEvent()
+
+			switch resType {
+			case felica_cards.UISelectReader:
+				if felicaManagement.ChangeReader(resContent) {
+					go felicaManagement.WaitForCard(cardCommand)
+				}
+			case felica_cards.UIWritePCSC:
+				inputText, _ := pcscInfoScreen.PcscInput.Get()
+				result := felicaManagement.WriteRawPCSC(inputText)
+				pcscInfoScreen.UpdateOutput(result)
+			case felica_cards.UIWriteCard:
+			case felica_cards.UIReadCard:
+				result := felicaManagement.ReadCardInfo()
+				memberInfoScreen.UpdateMemberInfo(result)
+			case felica_cards.UIReadToggle:
+				if !readToggle {
 					felicaManagement.ReaderCommand <- felica_cards.ReadMember
 
 					go func() {
@@ -43,32 +57,14 @@ func main() {
 							}
 						}
 					}()
+					readToggle = true
 				} else {
 					memberUICancel()
 					memberUIContext, memberUICancel = context.WithCancel(context.Background())
 					felicaManagement.ReaderCommand <- felica_cards.CancelWait
 					felicaManagement.CancelWait()
+					readToggle = false
 				}
-				previousCheck = runInBackground
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}()
-
-	go func() {
-		for {
-			resType, resContent := displayShow.GetEvent()
-
-			switch resType {
-			case felica_cards.NewReaderSelect:
-				if felicaManagement.ChangeReader(resContent) {
-					go felicaManagement.WaitForCard(cardCommand)
-				}
-			case felica_cards.SubmitPCSCCode:
-				inputText, _ := pcscInfoScreen.PcscInput.Get()
-				result := felicaManagement.WriteRawPCSC(inputText)
-				pcscInfoScreen.UpdateOutput(result)
-			case felica_cards.WriteMember:
 			}
 
 		}
